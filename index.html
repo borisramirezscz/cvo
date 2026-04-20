@@ -127,10 +127,6 @@ tr:hover td{background:rgba(255,255,255,.015)}
 @media(max-width:900px){.cards-row{grid-template-columns:1fr 1fr}.charts-grid{grid-template-columns:1fr}.upload-grid{grid-template-columns:1fr}.party-row{flex-direction:column}.main{padding:14px}.header{padding:0 14px}.hstats{gap:10px}}
 </style>
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
-<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
 <div class="layout">
@@ -488,6 +484,11 @@ function updateDash(){
 }
 
 function initCharts(){
+  if(typeof Chart === 'undefined'){ 
+    console.warn('Chart.js not loaded yet, retrying...');
+    setTimeout(initCharts, 500); 
+    return; 
+  }
   const provL = Object.keys(PROV_MESAS);
   const provV = Object.values(PROV_MESAS);
   const p10 = provL.slice(0,10);
@@ -713,14 +714,17 @@ function exportCSV(){
 function showSection(id){
   document.querySelectorAll('.section').forEach(s=>s.classList.remove('active'));
   document.querySelectorAll('.nav-tab').forEach(t=>t.classList.remove('active'));
-  document.getElementById('sec-'+id).classList.add('active');
-  document.getElementById('tab-'+id).classList.add('active');
+  const sec = document.getElementById('sec-'+id);
+  const tab = document.getElementById('tab-'+id);
+  if(sec) sec.classList.add('active');
+  if(tab) tab.classList.add('active');
   if(id==='registro') renderReg();
-  if((id==='dashboard'||id==='resultados')&&chartsReady){
+  if(id==='dashboard'||id==='resultados'){
     setTimeout(()=>{
-      [cProv,cAvance,cZona,cVPie,cVProv].forEach(c=>{if(c)c.resize();});
+      if(!chartsReady){ initCharts(); return; }
+      [cProv,cAvance,cZona,cVPie,cVProv].forEach(c=>{if(c){try{c.resize();}catch(e){}}});
       updateCharts();
-    },50);
+    },100);
   }
   if(id==='mapa'){
     setTimeout(()=>{
@@ -729,7 +733,7 @@ function showSection(id){
         if(mapInstance) mapInstance.invalidateSize();
         renderMapMarkers();
       }
-    },80);
+    },100);
   }
 }
 
@@ -945,7 +949,15 @@ const provs=Object.keys(PROV_MESAS).sort();
 // Load data from Supabase on startup
 window.addEventListener('load', function(){
   loadFromSupabase();
-  setTimeout(initCharts, 100);
+  // Wait for all CDN scripts then init charts
+  function tryInitCharts(attempts){
+    if(typeof Chart !== 'undefined'){
+      initCharts();
+    } else if(attempts > 0){
+      setTimeout(()=>tryInitCharts(attempts-1), 600);
+    }
+  }
+  setTimeout(()=>tryInitCharts(10), 300);
 });
 </script>
 
@@ -995,5 +1007,9 @@ window.addEventListener('load', function(){
 </section>
 
 </div></div></div>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </body>
 </html>

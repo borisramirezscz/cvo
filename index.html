@@ -349,14 +349,16 @@ async function loadFromSupabase() {
       recintoId: r.recinto_id,
       recinto: r.recinto,
       mesa: r.mesa,
-      municipio: r.municipio,
-      provincia: r.provincia,
+      municipio: r.municipio || '',
+      provincia: r.provincia || '',
+      distrito: r.distrito || '',
       va: r.votos_a || 0,
       vb: r.votos_b || 0,
       nulos: r.nulos || 0,
       blancos: r.blancos || 0,
       habilitados: r.habilitados || 0,
       archivo: r.archivo_nombre || '(sin archivo)',
+      archivo_nombre: r.archivo_nombre || '',
       archivo_url: r.archivo_url || '',
       fecha: new Date(r.created_at).toLocaleString('es-BO'),
       ts: new Date(r.created_at).getTime()
@@ -827,22 +829,20 @@ function renderRevision(){
   let filtered = registros.filter(r => {
     const mq = !q || r.recinto.toLowerCase().includes(q) || r.municipio.toLowerCase().includes(q);
     const mp = !prov || r.provincia === prov;
-    const hasFoto = r.archivo_url && r.archivo_url !== '' && r.archivo_url !== 'undefined';
+    const url = r.archivo_url||'';
+    const hasFoto = url && url.length > 10 && url.startsWith('http');
     const mf = !foto || (foto==='con' && hasFoto) || (foto==='sin' && !hasFoto);
     return mq && mp && mf;
   }).sort((a,b) => b.ts - a.ts);
 
-  const conFoto = registros.filter(r => r.archivo_url && r.archivo_url !== '' && r.archivo_url !== 'undefined').length;
+  const conFoto = registros.filter(r => {const u=r.archivo_url||''; return u && u.length>10 && u.startsWith('http');}).length;
   const sinFoto = registros.length - conFoto;
 
-  const el = document.getElementById('rev-con-foto');
-  if(el) el.textContent = conFoto;
-  const el2 = document.getElementById('rev-sin-foto');
-  if(el2) el2.textContent = sinFoto;
-  const el3 = document.getElementById('rev-total-actas');
-  if(el3) el3.textContent = registros.length;
-  const elc = document.getElementById('rev-count');
-  if(elc) elc.textContent = filtered.length + ' actas';
+  const setEl = (id,v) => { const e=document.getElementById(id); if(e) e.textContent=v; };
+  setEl('rev-con-foto', conFoto);
+  setEl('rev-sin-foto', sinFoto);
+  setEl('rev-total-actas', registros.length);
+  setEl('rev-count', filtered.length + ' actas');
 
   const grid = document.getElementById('rev-grid');
   const empty = document.getElementById('rev-empty');
@@ -852,76 +852,80 @@ function renderRevision(){
   if(empty) empty.style.display='none';
 
   grid.innerHTML = filtered.map(r => {
-    const hasFoto = r.archivo_url && r.archivo_url !== '' && r.archivo_url !== 'undefined';
-    const isImg = hasFoto && /\.(jpg|jpeg|png|gif|webp)/i.test(r.archivo||'');
-    const isPdf = hasFoto && /\.pdf$/i.test(r.archivo||'');
+    const url = r.archivo_url||'';
+    const hasFoto = url && url.length > 10 && url.startsWith('http');
+    const nombre = r.archivo||r.archivo_nombre||'';
+    const isImg = hasFoto && /\.(jpg|jpeg|png|gif|webp)/i.test(nombre + url);
+    const isPdf = hasFoto && /\.pdf$/i.test(nombre + url);
     const va = r.va||0;
     const vb = r.vb||0;
     const tv = va+vb;
+    const pctA = tv>0 ? (va/tv*100).toFixed(1)+'%' : '—';
+    const pctB = tv>0 ? (vb/tv*100).toFixed(1)+'%' : '—';
 
-    return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;overflow:hidden;transition:.2s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
-      <!-- Header card -->
-      <div style="padding:14px 16px;border-bottom:1px solid var(--border)">
-        <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px">
-          <div style="font-size:12px;font-weight:700;line-height:1.3;flex:1">${r.recinto}</div>
-          <div style="font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;color:var(--accent2);white-space:nowrap">M-${String(r.mesa).padStart(2,'0')}</div>
-        </div>
-        <div style="font-size:10px;color:var(--text2);margin-top:4px">${r.municipio} · ${r.provincia}</div>
-        <div style="font-size:10px;color:var(--text3);margin-top:2px">${r.fecha}</div>
-      </div>
-
-      <!-- Votos -->
-      <div style="padding:10px 16px;display:flex;gap:12px;border-bottom:1px solid var(--border)">
-        <div style="flex:1;text-align:center">
-          <div style="font-size:18px;font-weight:800;color:var(--pa);font-family:'JetBrains Mono',monospace">${va.toLocaleString('es')}</div>
-          <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">Partido A</div>
-          <div style="font-size:10px;color:var(--pa)">${tv>0?(va/tv*100).toFixed(1)+'%':'—'}</div>
-        </div>
-        <div style="width:1px;background:var(--border)"></div>
-        <div style="flex:1;text-align:center">
-          <div style="font-size:18px;font-weight:800;color:var(--pb);font-family:'JetBrains Mono',monospace">${vb.toLocaleString('es')}</div>
-          <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">Partido B</div>
-          <div style="font-size:10px;color:var(--pb)">${tv>0?(vb/tv*100).toFixed(1)+'%':'—'}</div>
-        </div>
-        <div style="width:1px;background:var(--border)"></div>
-        <div style="flex:1;text-align:center">
-          <div style="font-size:13px;font-weight:600;color:var(--text2);font-family:'JetBrains Mono',monospace">${(r.nulos||0)}/${(r.blancos||0)}</div>
-          <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">Nulos/Blanc.</div>
-        </div>
-      </div>
-
-      <!-- Imagen del acta -->
-      <div style="padding:12px 16px">
+    return `<div style="background:var(--surface);border:1px solid var(--border);border-radius:10px;display:flex;flex-direction:row;overflow:hidden;min-height:160px;transition:.2s" 
+      onmouseover="this.style.borderColor='var(--accent)'" 
+      onmouseout="this.style.borderColor='var(--border)'">
+      
+      <!-- LEFT: imagen -->
+      <div style="width:200px;min-width:200px;background:var(--surface2);display:flex;align-items:center;justify-content:center;position:relative;overflow:hidden;cursor:${hasFoto&&isImg?'pointer':'default'}" 
+        ${hasFoto&&isImg?`onclick="openModal('${url}','${r.recinto.replace(/'/g,"\'")} — M-${String(r.mesa).padStart(2,'0')}')"`:''}>
         ${hasFoto && isImg ? 
-          `<div style="cursor:pointer;border-radius:7px;overflow:hidden;border:1px solid var(--border);position:relative" onclick="openModal('${r.archivo_url}','${r.recinto} — M-${String(r.mesa).padStart(2,'0')} · ${r.municipio}')">
-            <img src="${r.archivo_url}" style="width:100%;height:160px;object-fit:cover;display:block;transition:.2s" 
-              onmouseover="this.style.opacity='.8'" onmouseout="this.style.opacity='1'"
-              onerror="this.parentElement.innerHTML='<div style=\'height:160px;display:flex;align-items:center;justify-content:center;background:var(--surface2);border-radius:7px;color:var(--text3);font-size:12px\'>Error cargando imagen</div>'">
-            <div style="position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,.7));padding:12px 10px 8px;color:#fff;font-size:11px;font-weight:600">
-              🔍 Clic para ver completa
-            </div>
-          </div>` 
+          `<img src="${url}" style="width:100%;height:100%;object-fit:cover;transition:.3s" 
+            onmouseover="this.style.transform='scale(1.04)'" 
+            onmouseout="this.style.transform='scale(1)'"
+            onerror="this.parentElement.innerHTML='<div style=\"width:100%;height:100%;display:flex;flex-direction:column;align-items:center;justify-content:center;color:var(--text3)\"><span style=\"font-size:28px\">🖼️</span><span style=\"font-size:10px;margin-top:6px\">Error imagen</span></div>'"
+          >
+          <div style="position:absolute;bottom:0;left:0;right:0;background:linear-gradient(transparent,rgba(0,0,0,.75));padding:10px 8px 7px;color:#fff;font-size:10px;font-weight:600;text-align:center">
+            🔍 Ver completa
+          </div>`
         : hasFoto && isPdf ?
-          `<a href="${r.archivo_url}" target="_blank" style="display:flex;align-items:center;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:14px;text-decoration:none;transition:.2s" onmouseover="this.style.borderColor='var(--accent)'" onmouseout="this.style.borderColor='var(--border)'">
-            <span style="font-size:28px">📄</span>
-            <div>
-              <div style="font-size:12px;font-weight:600;color:var(--text)">Ver PDF del acta</div>
-              <div style="font-size:10px;color:var(--text2);margin-top:2px">${r.archivo||'documento.pdf'}</div>
-            </div>
+          `<a href="${url}" target="_blank" style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:100%;text-decoration:none;color:var(--text2);gap:6px">
+            <span style="font-size:36px">📄</span>
+            <span style="font-size:10px;font-weight:600">Ver PDF</span>
           </a>`
         : hasFoto ?
-          `<a href="${r.archivo_url}" target="_blank" style="display:flex;align-items:center;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:14px;text-decoration:none">
-            <span style="font-size:24px">📎</span>
-            <div style="font-size:12px;font-weight:600;color:var(--text)">${r.archivo||'Ver archivo'}</div>
+          `<a href="${url}" target="_blank" style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:100%;text-decoration:none;color:var(--text2);gap:6px">
+            <span style="font-size:36px">📎</span>
+            <span style="font-size:10px;font-weight:600">Ver archivo</span>
           </a>`
         :
-          `<div style="height:80px;display:flex;align-items:center;justify-content:center;background:var(--surface2);border-radius:7px;border:1px dashed var(--border)">
-            <div style="text-align:center">
-              <div style="font-size:20px;margin-bottom:4px">📋</div>
-              <div style="font-size:11px;color:var(--text3)">Sin imagen adjunta</div>
-            </div>
+          `<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;width:100%;height:100%;color:var(--text3);gap:6px">
+            <span style="font-size:32px">📋</span>
+            <span style="font-size:10px">Sin imagen</span>
           </div>`
         }
+      </div>
+
+      <!-- RIGHT: datos -->
+      <div style="flex:1;padding:14px 16px;display:flex;flex-direction:column;justify-content:space-between;min-width:0">
+        <!-- Header -->
+        <div>
+          <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;margin-bottom:4px">
+            <div style="font-size:12px;font-weight:700;line-height:1.3;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${r.recinto}</div>
+            <div style="font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:800;color:var(--accent2);white-space:nowrap;background:rgba(0,135,255,.1);padding:3px 8px;border-radius:5px">M-${String(r.mesa).padStart(2,'0')}</div>
+          </div>
+          <div style="font-size:10px;color:var(--text2)">${r.municipio} · ${r.provincia}</div>
+          <div style="font-size:10px;color:var(--text3);margin-top:2px">${r.fecha}</div>
+        </div>
+        <!-- Votos -->
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-top:10px">
+          <div style="background:rgba(255,107,53,.08);border:1px solid rgba(255,107,53,.2);border-radius:7px;padding:8px;text-align:center">
+            <div style="font-size:18px;font-weight:800;color:var(--pa);font-family:'JetBrains Mono',monospace">${va.toLocaleString('es')}</div>
+            <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">Partido A</div>
+            <div style="font-size:10px;color:var(--pa);font-weight:600">${pctA}</div>
+          </div>
+          <div style="background:rgba(168,85,247,.08);border:1px solid rgba(168,85,247,.2);border-radius:7px;padding:8px;text-align:center">
+            <div style="font-size:18px;font-weight:800;color:var(--pb);font-family:'JetBrains Mono',monospace">${vb.toLocaleString('es')}</div>
+            <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">Partido B</div>
+            <div style="font-size:10px;color:var(--pb);font-weight:600">${pctB}</div>
+          </div>
+          <div style="background:var(--surface2);border:1px solid var(--border);border-radius:7px;padding:8px;text-align:center">
+            <div style="font-size:13px;font-weight:700;color:var(--text2);font-family:'JetBrains Mono',monospace">${r.nulos||0} / ${r.blancos||0}</div>
+            <div style="font-size:9px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px">Nulos/Blancos</div>
+            <div style="font-size:10px;color:var(--text3)">${r.habilitados||0} hab.</div>
+          </div>
+        </div>
       </div>
     </div>`;
   }).join('');
@@ -1171,7 +1175,7 @@ window.addEventListener('load', function(){
       <div style="font-size:10px;color:var(--text3);text-transform:uppercase;letter-spacing:.5px;margin-top:2px">Total actas</div>
     </div>
   </div>
-  <div id="rev-grid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:14px"></div>
+  <div id="rev-grid" style="display:flex;flex-direction:column;gap:12px"></div>
   <div class="empty" id="rev-empty" style="display:none">No hay actas registradas aún.</div>
 </section>
 

@@ -129,6 +129,7 @@ tr:hover td{background:rgba(255,255,255,.015)}
 <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 </head>
 <body>
@@ -307,13 +308,143 @@ const PROV_MESAS = {"Andrés Ibáñez":5740,"Obispo Santistéban":570,"Warnes":4
 const TOTAL = 8962;
 const COLORS = ['#00d4aa','#0087ff','#ff6b35','#a855f7','#ec4899','#ffd23f','#2ed573','#00c8ff','#ff4757','#ff9f43','#54a0ff','#5f27cd','#01abc4','#ff6348','#747d8c'];
 
+// ===== SUPABASE CONFIG =====
+const SUPA_URL = 'https://dkkxpotdsookvlnsuqwv.supabase.co';
+const SUPA_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRra3hwb3Rkc29va3ZsbnN1cXd2Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzY2OTkxODAsImV4cCI6MjA5MjI3NTE4MH0.snj1himYJX2kPKtaXCsaGXQl7iWzmEb3Uxuc194jjig';
+let supabase;
+try { supabase = window.supabase.createClient(SUPA_URL, SUPA_KEY); } catch(e) { console.error('Supabase init error:', e); }
+
 let registros = [];
-try { registros = JSON.parse(localStorage.getItem('electoral_v3') || '[]'); } catch(e){}
 let selRec=null, selMesa=null, selFile=null;
 let cProv, cAvance, cZona, cVPie, cVProv;
 let chartsReady = false;
+let syncStatus = 'idle'; // idle | syncing | ok | error
 
-function saveReg(){ try{localStorage.setItem('electoral_v3',JSON.stringify(registros));}catch(e){} }
+function setSyncStatus(s, msg) {
+  syncStatus = s;
+  const el = document.getElementById('sync-status');
+  if (!el) return;
+  const styles = {
+    idle:    'color:var(--text3)',
+    syncing: 'color:var(--warn)',
+    ok:      'color:var(--success)',
+    error:   'color:var(--danger)'
+  };
+  const labels = {
+    idle:    '● Sin conexión',
+    syncing: '⟳ Sincronizando...',
+    ok:      '● Conectado · ' + (msg||''),
+    error:   '● Error: ' + (msg||'')
+  };
+  el.textContent = labels[s];
+  el.style.cssText = styles[s] + ';font-size:10px;font-weight:600;margin-top:6px;display:block';
+}
+
+async function loadFromSupabase() {
+  if (!supabase) { loadFromLocal(); return; }
+  setSyncStatus('syncing');
+  try {
+    const { data, error } = await supabase.from('registros').select('*').order('created_at', {ascending:false});
+    if (error) throw error;
+    // Map DB fields to local format
+    registros = data.map(r => ({
+      id: r.id,
+      recintoId: r.recinto_id,
+      recinto: r.recinto,
+      mesa: r.mesa,
+      municipio: r.municipio,
+      provincia: r.provincia,
+      va: r.votos_a || 0,
+      vb: r.votos_b || 0,
+      nulos: r.nulos || 0,
+      blancos: r.blancos || 0,
+      habilitados: r.habilitados || 0,
+      archivo: r.archivo_nombre || '(sin archivo)',
+      archivo_url: r.archivo_url || '',
+      fecha: new Date(r.created_at).toLocaleString('es-BO'),
+      ts: new Date(r.created_at).getTime()
+    }));
+    setSyncStatus('ok', registros.length + ' registros');
+    updateDash(); renderReg();
+    // Subscribe to realtime changes
+    supabase.channel('registros-changes')
+      .on('postgres_changes', {event:'INSERT', schema:'public', table:'registros'}, payload => {
+        const r = payload.new;
+        const exists = registros.find(x => x.recintoId===r.recinto_id && x.mesa===r.mesa);
+        if (!exists) {
+          registros.unshift({
+            id: r.id, recintoId: r.recinto_id, recinto: r.recinto,
+            mesa: r.mesa, municipio: r.municipio, provincia: r.provincia,
+            va: r.votos_a||0, vb: r.votos_b||0, nulos: r.nulos||0,
+            blancos: r.blancos||0, habilitados: r.habilitados||0,
+            archivo: r.archivo_nombre||'(sin archivo)', archivo_url: r.archivo_url||'',
+            fecha: new Date(r.created_at).toLocaleString('es-BO'),
+            ts: new Date(r.created_at).getTime()
+          });
+          setSyncStatus('ok', registros.length + ' registros');
+          updateDash(); renderReg(); if(mapInitialized) renderMapMarkers();
+          notify('🔔 Nueva acta: ' + r.recinto + ' M-' + String(r.mesa).padStart(2,'0'), 'success');
+        }
+      })
+      .subscribe();
+  } catch(e) {
+    console.error('Supabase load error:', e);
+    setSyncStatus('error', 'usando local');
+    loadFromLocal();
+  }
+}
+
+function loadFromLocal() {
+  try { registros = JSON.parse(localStorage.getItem('electoral_v3') || '[]'); } catch(e) { registros=[]; }
+}
+
+async function saveReg(reg, file) {
+  // Always save to localStorage as backup
+  try { localStorage.setItem('electoral_v3', JSON.stringify(registros)); } catch(e) {}
+  
+  if (!supabase) return;
+  setSyncStatus('syncing');
+  try {
+    let archivo_url = null;
+    let archivo_nombre = reg.archivo || null;
+
+    // Upload file if present
+    if (file) {
+      const ext = file.name.split('.').pop();
+      const filename = `${reg.recintoId}_mesa${reg.mesa}_${Date.now()}.${ext}`;
+      const { data: upData, error: upError } = await supabase.storage
+        .from('actas')
+        .upload(filename, file, { cacheControl: '3600', upsert: false });
+      if (!upError) {
+        const { data: urlData } = supabase.storage.from('actas').getPublicUrl(filename);
+        archivo_url = urlData.publicUrl;
+        archivo_nombre = file.name;
+      }
+    }
+
+    const { error } = await supabase.from('registros').insert([{
+      recinto_id:     reg.recintoId,
+      recinto:        reg.recinto,
+      mesa:           reg.mesa,
+      municipio:      reg.municipio,
+      provincia:      reg.provincia,
+      distrito:       reg.distrito || '',
+      votos_a:        reg.va || 0,
+      votos_b:        reg.vb || 0,
+      nulos:          reg.nulos || 0,
+      blancos:        reg.blancos || 0,
+      habilitados:    reg.habilitados || 0,
+      archivo_url:    archivo_url,
+      archivo_nombre: archivo_nombre,
+      operador:       reg.operador || 'Operador'
+    }]);
+    if (error) throw error;
+    setSyncStatus('ok', registros.length + ' registros');
+  } catch(e) {
+    console.error('Supabase save error:', e);
+    setSyncStatus('error', 'guardado local');
+  }
+}
 
 function updateDash(){
   const done = registros.length;
@@ -515,14 +646,26 @@ function fileSelected(e){if(e.target.files[0])handleFile(e.target.files[0]);}
 function handleFile(f){selFile=f;document.getElementById('file-preview').style.display='block';document.getElementById('fn').textContent=f.name;document.getElementById('fs').textContent=(f.size/1024).toFixed(1)+' KB';}
 function clearFile(){selFile=null;document.getElementById('file-preview').style.display='none';document.getElementById('fi').value='';}
 
-function registrar(){
+async function registrar(){
   if(!selRec){notify('Selecciona un recinto primero','warn');return;}
   if(!selMesa){notify('Selecciona una mesa primero','warn');return;}
   if(registros.find(r=>r.recintoId===selRec.id&&r.mesa===selMesa)){notify('⚠️ La mesa M-'+String(selMesa).padStart(2,'0')+' ya fue registrada','error');return;}
   const va=parseInt(document.getElementById('v-a').value)||0;
   const vb=parseInt(document.getElementById('v-b').value)||0;
-  registros.push({id:Date.now(),recintoId:selRec.id,recinto:selRec.recinto,mesa:selMesa,municipio:selRec.municipio,provincia:selRec.provincia,va,vb,nulos:parseInt(document.getElementById('v-nulos').value)||0,blancos:parseInt(document.getElementById('v-blancos').value)||0,habilitados:parseInt(document.getElementById('v-hab').value)||0,archivo:selFile?selFile.name:'(sin archivo)',fecha:new Date().toLocaleString('es-BO'),ts:Date.now()});
-  saveReg();
+  const reg={
+    id:Date.now(), recintoId:selRec.id, recinto:selRec.recinto,
+    mesa:selMesa, municipio:selRec.municipio, provincia:selRec.provincia,
+    distrito:selRec.distrito||'',
+    va, vb,
+    nulos:parseInt(document.getElementById('v-nulos').value)||0,
+    blancos:parseInt(document.getElementById('v-blancos').value)||0,
+    habilitados:parseInt(document.getElementById('v-hab').value)||0,
+    archivo:selFile?selFile.name:'(sin archivo)',
+    fecha:new Date().toLocaleString('es-BO'), ts:Date.now()
+  };
+  registros.unshift(reg);
+  notify('⏳ Guardando acta...','warn');
+  await saveReg(reg, selFile);
   notify('✅ Mesa M-'+String(selMesa).padStart(2,'0')+' registrada — A:'+va+' B:'+vb,'success');
   selMesa=null;clearFile();
   document.getElementById('votos-section').classList.remove('vis');
@@ -799,10 +942,9 @@ const provs=Object.keys(PROV_MESAS).sort();
   const el=document.getElementById(id);
   provs.forEach(p=>{const o=document.createElement('option');o.value=p;o.textContent=p;el.appendChild(o);});
 });
-updateDash();
-
-// Chart.js must load before we init charts
+// Load data from Supabase on startup
 window.addEventListener('load', function(){
+  loadFromSupabase();
   setTimeout(initCharts, 100);
 });
 </script>

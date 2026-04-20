@@ -409,15 +409,26 @@ async function saveReg(reg, file) {
 
     // Upload file if present
     if (file) {
-      const ext = file.name.split('.').pop();
+      const ext = file.name.split('.').pop().toLowerCase();
       const filename = `${reg.recintoId}_mesa${reg.mesa}_${Date.now()}.${ext}`;
-      const { data: upData, error: upError } = await supabase.storage
-        .from('actas')
-        .upload(filename, file, { cacheControl: '3600', upsert: false });
-      if (!upError) {
-        const { data: urlData } = supabase.storage.from('actas').getPublicUrl(filename);
-        archivo_url = urlData.publicUrl;
-        archivo_nombre = file.name;
+      console.log('Uploading file:', filename, 'size:', file.size);
+      try {
+        const { data: upData, error: upError } = await supabase.storage
+          .from('actas')
+          .upload(filename, file, { cacheControl: '3600', upsert: true, contentType: file.type });
+        if (upError) {
+          console.error('Upload error:', JSON.stringify(upError));
+          notify('⚠️ Foto no guardada: ' + (upError.message||'error storage'), 'warn');
+        } else {
+          console.log('Upload OK:', upData);
+          const { data: urlData } = supabase.storage.from('actas').getPublicUrl(filename);
+          archivo_url = urlData.publicUrl;
+          archivo_nombre = file.name;
+          console.log('Public URL:', archivo_url);
+        }
+      } catch(uploadErr) {
+        console.error('Upload exception:', uploadErr);
+        notify('⚠️ Error al subir foto: ' + uploadErr.message, 'warn');
       }
     }
 

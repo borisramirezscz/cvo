@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Sistema Control Electoral — Santa Cruz 2026</title>
+<title>MVO · Monitoreo de Votos Online</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Sora:wght@300;400;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap');
 :root{--bg:#0b0f1a;--surface:#121828;--surface2:#1a2236;--border:#1e2d45;--accent:#00d4aa;--accent2:#0087ff;--danger:#ff4757;--success:#2ed573;--warn:#ffd23f;--text:#e8eef5;--text2:#7a8fa8;--text3:#4a5f7a;--pa:#ff6b35;--pb:#a855f7}
@@ -135,7 +135,7 @@ tr:hover td{background:rgba(255,255,255,.015)}
 <div class="layout">
 <aside class="sidebar">
   <div class="logo">
-    <div class="logo-inner"><div class="logo-icon">🗳️</div><div class="logo-text">Sistema Electoral<br>Santa Cruz 2026</div></div>
+    <div class="logo-inner"><div class="logo-icon">🗳️</div><div class="logo-text">MVO · Monitoreo<br>de Votos Online</div></div>
     <div class="logo-sub">1,138 Recintos · 8,962 Mesas</div>
   </div>
   <div class="hstats">
@@ -630,7 +630,7 @@ function exportXLSX(){
   const blancos=registros.reduce((s,r)=>s+(r.blancos||0),0);
   const tv=va+vb;
   const wsGen = [
-    ['Sistema Electoral Santa Cruz 2026',''],
+    ['MVO · Monitoreo de Votos Online',''],
     ['Generado',new Date().toLocaleString('es-BO')],
     ['',''],
     ['RESUMEN GENERAL',''],
